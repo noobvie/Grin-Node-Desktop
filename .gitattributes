@@ -1,0 +1,66 @@
+# Cross-platform line ending policy.
+#
+# Without this file, git decides per-checkout based on each developer's
+# core.autocrlf setting. Result: PS scripts get LF when committed from
+# macOS, mystery diffs appear, and Windows tools occasionally complain
+# about scripts they expected to see in CRLF.
+#
+# This file makes the rules explicit and identical on every machine.
+
+# ── Default ────────────────────────────────────────────────────────────────
+# Treat any text file we haven't explicitly classified as text-with-LF.
+# Binary files set the `binary` macro below and bypass this.
+*                 text=auto eol=lf
+
+# ── Windows-native scripts: CRLF in the working tree ──────────────────────
+# PowerShell 5.1 and cmd.exe parse LF in .ps1 / .bat reliably on Win10+
+# but some Authenticode-signing tools and older PS hosts expect CRLF.
+# Cheaper to enforce CRLF than to debug an "it worked on my machine" bug.
+*.ps1             text eol=crlf
+*.psm1            text eol=crlf
+*.psd1            text eol=crlf
+*.bat             text eol=crlf
+*.cmd             text eol=crlf
+
+# ── Unix-native scripts: always LF ────────────────────────────────────────
+*.sh              text eol=lf
+
+# ── Source code: LF everywhere ────────────────────────────────────────────
+*.js              text eol=lf
+*.mjs             text eol=lf
+*.cjs             text eol=lf
+*.ts              text eol=lf
+*.json            text eol=lf
+*.html            text eol=lf
+*.css             text eol=lf
+*.md              text eol=lf
+*.yml             text eol=lf
+*.yaml            text eol=lf
+*.toml            text eol=lf
+*.svg             text eol=lf
+
+# ── Dotfiles ──────────────────────────────────────────────────────────────
+.gitignore        text eol=lf
+.gitattributes    text eol=lf
+.editorconfig     text eol=lf
+.npmrc            text eol=lf
+
+# ── Binary: no conversion at all ──────────────────────────────────────────
+*.png             binary
+*.jpg             binary
+*.jpeg            binary
+*.gif             binary
+*.ico             binary
+*.webp            binary
+*.zip             binary
+*.tar             binary
+*.tar.gz          binary
+*.tgz             binary
+*.7z              binary
+*.exe             binary
+*.dll             binary
+*.pdf             binary
+*.woff            binary
+*.woff2           binary
+*.ttf             binary
+*.otf             binary

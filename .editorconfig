@@ -1,0 +1,38 @@
+# https://editorconfig.org
+# Tells every editor (VS Code, JetBrains, Sublime, Vim with plugin)
+# the same indent, charset, and line-ending rules. Pairs with
+# .gitattributes — that one tells git, this one tells your editor.
+
+root = true
+
+# ── Defaults for every file ────────────────────────────────────────────────
+[*]
+charset                  = utf-8
+end_of_line              = lf
+insert_final_newline     = true
+trim_trailing_whitespace = true
+indent_style             = space
+indent_size              = 4
+
+# ── Windows-native scripts: CRLF + UTF-8 ──────────────────────────────────
+# Matches .gitattributes — these check out as CRLF on every platform,
+# so the editor must produce CRLF when saving on macOS / Linux too.
+[*.{ps1,psm1,psd1,bat,cmd}]
+end_of_line = crlf
+
+# ── JSON / YAML / TOML: 2-space indent (industry default) ─────────────────
+[*.{json,yml,yaml,toml}]
+indent_size = 2
+
+# ── HTML / CSS / JS: 2-space indent ───────────────────────────────────────
+[*.{html,css,js,mjs,cjs,ts}]
+indent_size = 2
+
+# ── Markdown: don't trim trailing whitespace ──────────────────────────────
+# Two trailing spaces = hard line break in CommonMark; trimming destroys it.
+[*.md]
+trim_trailing_whitespace = false
+
+# ── Makefile (if we ever add one): tabs, not spaces ───────────────────────
+[Makefile]
+indent_style = tab

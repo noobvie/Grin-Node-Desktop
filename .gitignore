@@ -1,21 +1,46 @@
-# Node
+# ── Node ────────────────────────────────────────────────────────────────────
 app/node_modules/
 app/npm-debug.log*
 app/yarn-debug.log*
 
-# Local state (created on first run)
+# ── Local runtime state (created on first run) ──────────────────────────────
 .unblocked
 app/wallets_info.json
 app/nodes_info.json
 
-# Editor
+# ── Editor / IDE ────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
 
-# OS
+# ── Windows OS junk ─────────────────────────────────────────────────────────
 Thumbs.db
-.DS_Store
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
 
-# Logs
+# ── macOS OS junk ───────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+Icon?
+__MACOSX/
+
+# ── Linux OS junk ───────────────────────────────────────────────────────────
+.directory
+.Trash-*
+.nfs*
+
+# ── Logs ────────────────────────────────────────────────────────────────────
 *.log
