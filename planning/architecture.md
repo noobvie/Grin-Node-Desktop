@@ -76,12 +76,25 @@ those things.
 
 ## 4. Storage layout on the user's machine
 
+**Install root: `D:\Grin\` (preferred) or `C:\Grin\` (fallback).**
+`install.ps1` picks the first of those two drives with at least **20 GiB
+free**; it errors out with the free-space report if neither qualifies.
+Drive-root paths are chosen over `%USERPROFILE%` so:
+- Multi-GB chain_data doesn't bloat the user's profile / OneDrive
+- Backups / re-imaging the system disk doesn't drag chain_data along
+- The path is short, predictable, and visible (`D:\Grin\` shows up
+  prominently in Explorer next to other drive contents)
+
+The drive-root requires Admin for the *first* write — install.ps1
+self-elevates at the top of the one-liner so all subsequent setup steps
+inherit that token. Daily use after install does not prompt UAC.
+
 **All paths under one root** so "delete the folder" is a clean uninstall.
 The repo and its runtime data live together; `.gitignore` excludes
 runtime dirs from git so `git pull` for self-update stays clean.
 
 ```
-%USERPROFILE%\Grin-Money-Desktop\           ← Install root (everything lives here)
+D:\Grin\                                    ← Install root (or C:\Grin\ fallback)
 │
 ├── README.md                               ┐
 ├── install.ps1                             │
@@ -153,16 +166,25 @@ runtime dirs from git so `git pull` for self-update stays clean.
 | Tor hidden service keys | `data\wallets\<name>\tor\` | ~few KB per wallet |
 | Binaries | `bin\` | ~80 MB total (grin + grin-wallet + tor + nssm) |
 | node_modules | `app\node_modules\` | ~30 MB |
+| **Total minimum free space at install** | | **20 GiB** (enforced by install.ps1) |
 
-**Why not `%LOCALAPPDATA%` for data?** Convention favours it, but
-`%USERPROFILE%\Grin-Money-Desktop\` matches the user's mental model
-("the wallet is in this one folder"). One folder = one uninstall. Easier
-backups: zip the whole thing.
+**Why 20 GiB?** Pruned mainnet + pruned testnet running side by side
+(~3.7 GB chain data combined), plus binaries, plus growth headroom over
+~6 months. Full-archive mainnet would need closer to 30 GiB but isn't
+the default.
 
-**Why `%USERPROFILE%` and not `C:\Grin\`?** Userprofile needs no Admin
-for file writes. Admin is still required for Windows service
-registration (NSSM), but only at install time — daily use never prompts
-UAC after that.
+**Why `D:\Grin\` (or `C:\Grin\`) and not `%USERPROFILE%`?** Three
+reasons:
+1. Chain_data is multi-GB — keeping it out of the user profile means
+   OneDrive sync, profile roaming, and system-disk backups don't pull
+   it along.
+2. The path stays short and predictable across users.
+3. Re-imaging Windows doesn't wipe the wallet — `D:\Grin\` survives a
+   fresh OS install if D: is a separate drive.
+
+The trade-off: drive-root writes need Admin. Acceptable because
+`install.ps1` self-elevates once, and NSSM service registration needs
+Admin regardless.
 
 ---
 
@@ -206,12 +228,16 @@ unwrap automatically. Direct access to `data.result` is a bug.
 Long-running components become Windows services so they survive reboot
 and can be controlled from the web UI via `sc.exe`.
 
-| Service name | Wraps | Start type (default) | Purpose |
+Both mainnet and testnet run **side by side by default** — separate
+data dirs, separate ports, separate services. The disk space check (20
+GiB) accounts for both pruned chains plus headroom.
+
+| Service name | Wraps | Default start | Purpose |
 |---|---|---|---|
 | `tor` | `tor.exe` | `auto` | SOCKS5 proxy on 9050; private send/receive |
-| `GrinNode-Mainnet-Pruned` | `grin.exe server run` | `demand` | Mainnet pruned node |
-| `GrinNode-Mainnet-Full` | `grin.exe server run` | `demand` | Mainnet full node (rare) |
-| `GrinNode-Testnet-Pruned` | `grin.exe --testnet server run` | `demand` | Testnet node |
+| `GrinNode-Mainnet-Pruned` | `grin.exe server run` | user choice (demand / auto) | Mainnet pruned node |
+| `GrinNode-Mainnet-Full` | `grin.exe server run` | user choice | Optional mainnet full node |
+| `GrinNode-Testnet-Pruned` | `grin.exe --testnet server run` | user choice | Testnet node |
 
 Service naming pattern: `GrinNode-<Network>-<Mode>` (capitalised).
 See `app/lib/services/catalog.js` in [function-flows.md](function-flows.md).
@@ -221,9 +247,11 @@ See `app/lib/services/catalog.js` in [function-flows.md](function-flows.md).
 - `demand` — user (or the UI) explicitly starts it
 - `disabled` — won't start, even manually
 
-Default is `demand` for nodes because chain_data is bandwidth-heavy and
-not every user wants it always running. Tor is `auto` because it's
-lightweight and needed for sends.
+The setup wizard asks the user which mode they want per node service.
+Default suggestion: `demand` for new installs (so first launch isn't
+gated by a 3 GB chain sync), with a one-click "switch to auto-start"
+toggle in the Dashboard once they've confirmed everything works. Tor
+defaults to `auto` — it's lightweight and needed for private sends.
 
 **Why NSSM for grin.exe:** `grin.exe` has no native `--service install`
 flag. NSSM (~300 KB, MIT) wraps it with proper Ctrl+C semantics — when
@@ -248,7 +276,7 @@ User opens PowerShell as Administrator and pastes:
 install.ps1:
   ├─ Force TLS 1.2
   ├─ Self-elevate if not Admin (re-runs the one-liner under RunAs)
-  ├─ Pick install dir ($env:USERPROFILE\Grin-Money-Desktop by default)
+  ├─ Pick install dir (D:\Grin preferred, C:\Grin fallback, min 20 GiB free)
   ├─ winget install Git.Git              ← if missing
   ├─ winget install OpenJS.NodeJS.LTS    ← if missing
   ├─ git clone https://github.com/noobvie/Grin-Money-Desktop.git $InstallDir
@@ -451,21 +479,16 @@ practice.
 
 ---
 
-## 12. Open decisions (need answers before Phase 1 starts)
+## 12. Decisions made (2026-05-26)
 
-1. **Install dir**: `%USERPROFILE%\Grin-Money-Desktop\` (default in this
-   doc) vs `C:\Grin\` / `D:\Grin\` (drive-root pattern, more visible but
-   requires Admin for file writes)?
-2. **Networks side-by-side**: support mainnet + testnet running
-   simultaneously, or one at a time (swap via Settings)? Side-by-side
-   needs more disk (~3 GB extra) but is harmless otherwise.
-3. **Multiple wallets per network**: yes (matches the existing wallet
-   registry pattern), or one wallet per network (simpler)?
-4. **Service start type default**: `demand` (architecture's current
-   answer — user clicks Start) vs `auto` (boot-start)?
-5. **Tor default**: on or off in the wizard? Default `on` since private
-   sends are the main draw of Grin.
-6. **License**: README currently says MIT — confirm or pick alternative.
+| # | Decision | Reasoning |
+|---|---|---|
+| 1 | **Install dir: `D:\Grin\` preferred, `C:\Grin\` fallback, 20 GiB minimum** | Drive-root keeps chain_data off the user profile / OneDrive; survives OS reimage if D: is a separate disk. Hard error if neither drive has 20 GiB. |
+| 2 | **Networks side-by-side** — mainnet + testnet run simultaneously | Separate services, separate ports, separate data dirs. 20 GiB minimum already accounts for both pruned chains. |
+| 3 | **Multiple wallets per network: yes** | More flexible; matches the existing wallet registry shape (`wallets.json` is already an array). UI gains a wallet picker. |
+| 4 | **Service start type: user-controlled (demand or auto)** | Wizard asks per node. Default suggestion: `demand` on first install, with a one-click toggle in Dashboard to switch to `auto` after the user has verified things work. |
+| 5 | **Tor default: on** | Private sends are Grin's main draw; users opting out is the rarer path. UI has a clear "disable Tor" switch for users who want to. |
+| 6 | **License: Apache 2.0** | Permissive (anyone can use / fork / build on top), industry-standard for modern OSS projects, and adds an explicit patent grant that MIT lacks. See [LICENSE](../LICENSE). |
 
 ---
 

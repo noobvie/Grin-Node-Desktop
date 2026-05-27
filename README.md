@@ -58,4 +58,6 @@ See [planning/](planning/) for the architecture rationale.
 
 ## License
 
-MIT — do what you want.
+[Apache 2.0](LICENSE) — use, modify, fork, redistribute freely; the
+license includes an explicit patent grant so you're covered if you build
+on top.

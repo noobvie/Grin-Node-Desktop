@@ -144,8 +144,16 @@ whether to format SSE payload (skip if nobody's listening).
 
 ### Constants (computed once on module load)
 
+`INSTALL_ROOT` is **not** `os.homedir()`-derived — it's the directory
+that contains the running repo, computed relative to this file. The
+drive choice (`D:\Grin\` or `C:\Grin\`) was made by `install.ps1` at
+clone time; Node just inherits it via `__dirname`.
+
 ```
-INSTALL_ROOT = path.join(os.homedir(), 'Grin-Money-Desktop')
+// paths.js lives at app/lib/util/paths.js
+// Going up three levels reaches the repo root (D:\Grin\ or C:\Grin\).
+INSTALL_ROOT = path.resolve(__dirname, '..', '..', '..')
+
 BIN_DIR      = path.join(INSTALL_ROOT, 'bin')
 DATA_DIR     = path.join(INSTALL_ROOT, 'data')
 STATE_DIR    = path.join(INSTALL_ROOT, 'state')
@@ -157,6 +165,11 @@ walletDataDir(name)      = path.join(DATA_DIR, 'wallets', name)
 binaryPath(name)         = path.join(BIN_DIR, `${name}.exe`)
 stateFile(name)          = path.join(STATE_DIR, `${name}.json`)
 ```
+
+**Sanity check at startup** (in `ensureLayout()`): verify
+`INSTALL_ROOT` looks like a Grin install (contains `app/server.js`).
+Throw with a clear message if not — indicates the repo was moved or
+paths.js is being run from an unexpected location.
 
 ### `ensureLayout() → void`
 

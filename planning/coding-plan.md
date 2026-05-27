@@ -181,27 +181,31 @@ patched to working defaults.
 **New files**:
 - Constants added to `app/lib/util/paths.js`
 
+**Install root**: `D:\Grin\` preferred, `C:\Grin\` fallback. Selected
+once by `install.ps1` (which enforces the 20 GiB minimum-free check).
+Node reads it via `path.resolve(__dirname, '..', '..', '..')` — no
+hard-coded drive letters in JS.
+
 **Layout written**:
 ```
-%USERPROFILE%\Grin-Money-Desktop\
+D:\Grin\                       ← or C:\Grin\ if D: lacks 20 GiB
+├── (repo files: app/, scripts/, install.ps1, README.md, …)
 ├── bin\
 │   ├── grin.exe
 │   ├── grin-wallet.exe
-│   ├── tor.exe
-│   └── nssm.exe
+│   ├── nssm.exe
+│   └── tor\
+│       ├── tor.exe
+│       └── *.dll
 ├── data\
-│   ├── node-mainnet\        ← chain_data + grin-server.toml
-│   ├── node-testnet\
-│   └── wallets\<name>\      ← per-wallet data
-├── state\                   ← JSON files (Step 1.3)
+│   ├── node-mainnet\          ← chain_data + grin-server.toml + secrets
+│   ├── node-testnet\          (runs side-by-side with mainnet)
+│   └── wallets\<name>\        ← per-wallet (multiple per network OK)
+├── state\                     ← JSON files (Step 1.3)
 └── logs\
 ```
 
-**Decision needed**: stick with `%USERPROFILE%`, or use `C:\Grin\` /
-`D:\Grin\`? (Userprofile = no admin for files, admin only for services.
-Drive root = paths more visible to user, but admin required for every
-file write.) **Default: userprofile.** Revisit if Antivirus / heuristics
-push us off it.
+Decision recorded in [architecture.md §12](architecture.md#12-decisions-made-2026-05-26).
 
 ---
 
@@ -827,22 +831,15 @@ mock data fills the gaps until the real APIs land.
 
 ## Open Questions Before Start
 
-These deserve a decision before Phase 1 to avoid re-work later:
+All six decisions resolved on 2026-05-26 — recorded in
+[architecture.md §12](architecture.md#12-decisions-made-2026-05-26):
 
-1. **Install dir**: `%USERPROFILE%\Grin-Money-Desktop\` or `C:\Grin\` /
-   `D:\Grin\`? (default: userprofile)
-2. **Single network at a time**, or mainnet + testnet side by side?
-   Side-by-side costs ~3 GB extra disk but is otherwise harmless;
-   one-at-a-time keeps the UI simpler.
-3. **Multiple wallets per network**: yes (more flexible) or one
-   wallet per network (simpler)?
-4. **Service start type default**: `demand` (must click Start) or `auto`
-   (starts on boot)? Architecture says demand; user research might prefer
-   auto for "always available."
-5. **Tor default**: on or off in the wizard? (Default = on, since
-   private sends are the main reason most users come to Grin.)
-6. **License**: README says MIT — confirm or pick something else (Apache 2,
-   GPL, etc.).
+1. **Install dir**: `D:\Grin\` preferred, `C:\Grin\` fallback, 20 GiB minimum free
+2. **Networks**: mainnet + testnet run side by side by default
+3. **Wallets per network**: multiple, registry-backed
+4. **Service start type**: user choice (demand or auto), prompted in wizard
+5. **Tor**: default on
+6. **License**: Apache 2.0
 
 ---
 

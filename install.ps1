@@ -9,12 +9,26 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $ErrorActionPreference = 'Stop'
 
-$REPO_URL    = 'https://github.com/noobvie/Grin-Money-Desktop.git'
-$INSTALL_DIR = Join-Path $env:USERPROFILE 'Grin-Money-Desktop'
+$REPO_URL  = 'https://github.com/noobvie/Grin-Money-Desktop.git'
+$MIN_GIB   = 20
 
 function Write-Step($msg) { Write-Host "[install] $msg" -ForegroundColor Cyan }
 function Write-OK($msg)   { Write-Host "[ok]      $msg" -ForegroundColor Green }
 function Write-Warn2($m)  { Write-Host "[warn]    $m"   -ForegroundColor Yellow }
+
+# ─── Install dir selection ───────────────────────────────────────────────────
+# Prefer D:\Grin, fall back to C:\Grin. Require >= 20 GiB free on chosen drive.
+function Select-InstallDrive {
+    foreach ($letter in @('D', 'C')) {
+        $drive = Get-PSDrive -Name $letter -ErrorAction SilentlyContinue
+        if ($null -eq $drive) { continue }
+        if ($drive.Free -lt ($MIN_GIB * 1GB)) { continue }
+        return "${letter}:\Grin"
+    }
+    $report = Get-PSDrive C, D -ErrorAction SilentlyContinue |
+        ForEach-Object { '{0}: {1:N1} GiB free' -f $_.Name, ($_.Free / 1GB) }
+    throw "Need at least $MIN_GIB GiB free on D:\ or C:\. Found: $($report -join ', ')"
+}
 
 # ─── Self-elevate ────────────────────────────────────────────────────────────
 $current = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -33,6 +47,9 @@ Write-Host '╔═════════════════════�
 Write-Host '║  Grin Money Desktop — Installer                       ║' -ForegroundColor Cyan
 Write-Host '╚════════════════════════════════════════════════════════╝' -ForegroundColor Cyan
 Write-Host ''
+
+$INSTALL_DIR = Select-InstallDrive
+Write-OK "Install dir: $INSTALL_DIR"
 
 # ─── 1. Git ──────────────────────────────────────────────────────────────────
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
