@@ -492,7 +492,71 @@ practice.
 
 ---
 
-## 13. Grin API references
+## 13. Scope — what we don't build
+
+These are **explicit non-goals.** Listed here so future contributors
+have a clear answer to "why isn't there X?" and so feature creep is
+easy to push back on.
+
+### Storage / install
+
+- **No user-pickable chain_data location.** `install.ps1`'s automatic
+  `D:\` → `C:\` selection (with the 20 GiB check) is the only choice.
+  Letting users pick the path opens too many footguns: OneDrive-synced
+  folders silently uploading chain_data, removable drives that vanish
+  mid-sync, network shares with catastrophic latency, paths with
+  spaces/non-ASCII that break `grin.exe --top_level_dir` quoting in
+  edge cases, and the perennial "I formatted D: and now the wallet
+  won't start." Power users who genuinely need a custom path can pass
+  `-InstallDir` to install.ps1 manually (not exposed in the one-liner).
+- **No `%USERPROFILE%` install option.** Decided explicitly to keep
+  chain_data out of OneDrive's reach. See [architecture.md §4](#4-storage-layout-on-the-users-machine).
+- **No "move chain_data to another drive" UI.** Adds complexity for a
+  feature exercised once per user lifetime. Manual move + path update
+  is documented for users who need it.
+
+### Wallet features
+
+- **No mobile app.** Desktop only. The local web UI is the boundary.
+- **No multi-currency.** Grin only. No BTC, no LTC, no anything-else.
+- **No built-in exchange / atomic swap.** Out of scope; link out to
+  Grin community resources if needed.
+- **No hardware wallet integration (v1).** `grin-wallet` doesn't have
+  upstream Trezor / Ledger support. Revisit only if upstream lands it.
+- **No cloud sync, hosted backup, or remote wallet storage.** The
+  whole point is local custody.
+- **No browser extension version.** Adds attack surface and a second
+  codebase to maintain. The local-server boundary is already minimal.
+- **No KYC, identity verification, or compliance tooling.** Out of
+  scope, and opens legal liability the project doesn't want.
+
+### Operations / telemetry
+
+- **No analytics, no telemetry, no crash reporting** sent off-machine
+  by default. See [security-model.md §7](security-model.md#7-logging-and-telemetry-policy).
+- **No "always-on" background service** mode. The wallet runs only
+  while the user has it open. (The grin **node** can be an always-on
+  service via NSSM; the wallet UI process is foreground only.)
+- **No auto-update.** Self-update is user-initiated through the UI.
+  Wallets that update silently can ship a bug that breaks user funds —
+  we keep the user in the loop.
+
+### Process
+
+- **No beta / nightly release channel** for v1. Single stable
+  channel. Resist adding a beta until there are >100 users + a clear
+  pre-release tester pool.
+- **No public bug bounty program (v1).** Vulnerability reports
+  acknowledged with credit, but no monetary rewards until project has
+  funding for it. See [SECURITY.md](../SECURITY.md).
+
+If you want to argue for moving any of these into scope, open a
+discussion before opening a PR — moving non-goals into scope changes
+the architecture, not just the code.
+
+---
+
+## 14. Grin API references
 
 - **Wallet API tutorial**: <https://github.com/grincc/grin-wallet-api-tutorial>
 - **Wallet API Rust docs**: <https://docs.rs/grin_wallet_api/latest/grin_wallet_api/>
