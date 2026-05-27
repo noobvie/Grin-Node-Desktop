@@ -1,0 +1,16 @@
+{
+  "name": "grin-money-desktop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Grin wallet for Windows — Node.js server + local web UI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

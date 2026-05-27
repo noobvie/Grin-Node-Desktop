@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Grin Money Desktop</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body  { font-family: ui-sans-serif, system-ui, sans-serif;
+            max-width: 720px; margin: 4rem auto; padding: 0 1.5rem;
+            line-height: 1.5; }
+    h1    { margin-bottom: .25rem; }
+    .sub  { color: #888; margin-top: 0; }
+    code  { background: rgba(127,127,127,.15); padding: .1em .35em; border-radius: 4px; }
+    .badge { display: inline-block; font-size: .8rem; padding: .15em .55em;
+             border: 1px solid currentColor; border-radius: 999px; margin-left: .5rem; }
+  </style>
+</head>
+<body>
+  <h1>Grin Money Desktop <span class="badge">v0.0.1 · skeleton</span></h1>
+  <p class="sub">Local server is running. UI not built yet.</p>
+
+  <p>This page confirms the launcher → Node.js → browser handoff works.
+     The wallet UI, node manager, and setup wizard will live here once the
+     <code>app/lib/</code> modules are filled in.</p>
+
+  <h2>Status</h2>
+  <pre id="status">loading…</pre>
+
+  <script>
+    fetch('/api/health').then(r => r.json()).then(j => {
+      document.getElementById('status').textContent = JSON.stringify(j, null, 2);
+    });
+  </script>
+</body>
+</html>

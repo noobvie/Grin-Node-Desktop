@@ -1,0 +1,21 @@
+# Node
+app/node_modules/
+app/npm-debug.log*
+app/yarn-debug.log*
+
+# Local state (created on first run)
+.unblocked
+app/wallets_info.json
+app/nodes_info.json
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
