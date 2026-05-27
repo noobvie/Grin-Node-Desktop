@@ -36,5 +36,5 @@ if (-not (Test-Path (Join-Path $AppDir 'node_modules'))) {
 # ─── Launch the app ──────────────────────────────────────────────────────────
 Write-Step 'Starting Grin Money Desktop…'
 Push-Location $AppDir
-node $Entry
+node $Entry --open-browser
 Pop-Location

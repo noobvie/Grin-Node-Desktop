@@ -7,29 +7,117 @@
   <style>
     :root { color-scheme: light dark; }
     body  { font-family: ui-sans-serif, system-ui, sans-serif;
-            max-width: 720px; margin: 4rem auto; padding: 0 1.5rem;
+            max-width: 760px; margin: 3rem auto; padding: 0 1.5rem;
             line-height: 1.5; }
     h1    { margin-bottom: .25rem; }
     .sub  { color: #888; margin-top: 0; }
     code  { background: rgba(127,127,127,.15); padding: .1em .35em; border-radius: 4px; }
     .badge { display: inline-block; font-size: .8rem; padding: .15em .55em;
              border: 1px solid currentColor; border-radius: 999px; margin-left: .5rem; }
+    button { font: inherit; padding: .5em 1em; border: 1px solid currentColor;
+             background: transparent; border-radius: 6px; cursor: pointer; }
+    button:hover { background: rgba(127,127,127,.1); }
+    pre { background: rgba(127,127,127,.12); padding: .75rem; border-radius: 6px;
+          overflow-x: auto; font-size: .85rem; max-height: 16rem; overflow-y: auto; }
+    .row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+    progress { width: 100%; height: 12px; }
+    .ok    { color: #0a8; }
+    .warn  { color: #c80; }
+    .err   { color: #c33; }
+    .dim   { color: #888; font-size: .85rem; }
   </style>
 </head>
 <body>
   <h1>Grin Money Desktop <span class="badge">v0.0.1 · skeleton</span></h1>
-  <p class="sub">Local server is running. UI not built yet.</p>
-
-  <p>This page confirms the launcher → Node.js → browser handoff works.
-     The wallet UI, node manager, and setup wizard will live here once the
-     <code>app/lib/</code> modules are filled in.</p>
+  <p class="sub">Local server is running. Phase 1 plumbing in place; wizard UI not built yet.</p>
 
   <h2>Status</h2>
   <pre id="status">loading…</pre>
 
-  <script>
+  <h2>Plumbing test</h2>
+  <p class="dim">Downloads NSSM 2.24 (~300 KB), verifies SHA256, extracts, and
+     looks for win64/nssm.exe. Exercises every module in
+     <code>app/lib/util/</code>. Remove this section before Phase 7.</p>
+
+  <div class="row">
+    <button id="run-test">Run plumbing test</button>
+    <span id="test-status" class="dim">idle</span>
+  </div>
+
+  <progress id="progress" value="0" max="100" hidden></progress>
+  <div id="progress-label" class="dim" hidden></div>
+
+  <h3>Live log <span class="dim">(via SSE)</span></h3>
+  <pre id="log">subscribing…</pre>
+
+  <script type="module">
+    // ── Health ──────────────────────────────────────────────────────────────
     fetch('/api/health').then(r => r.json()).then(j => {
-      document.getElementById('status').textContent = JSON.stringify(j, null, 2);
+        document.getElementById('status').textContent = JSON.stringify(j, null, 2);
+    });
+
+    // ── SSE ─────────────────────────────────────────────────────────────────
+    const logEl     = document.getElementById('log');
+    const progEl    = document.getElementById('progress');
+    const progLabel = document.getElementById('progress-label');
+    const testStat  = document.getElementById('test-status');
+
+    let logLines = [];
+    function appendLog(line) {
+        logLines.push(line);
+        if (logLines.length > 200) logLines = logLines.slice(-200);
+        logEl.textContent = logLines.join('\n');
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    const es = new EventSource('/api/events');
+    es.addEventListener('open', () => appendLog('— SSE connected —'));
+    es.addEventListener('error', () => appendLog('— SSE error —'));
+
+    es.addEventListener('log', (ev) => {
+        const d = JSON.parse(ev.data);
+        const time = d.ts.slice(11, 19);
+        appendLog(`${time}  [${d.level}] [${d.scope}] ${d.msg}` +
+                  (d.meta ? '  ' + JSON.stringify(d.meta) : ''));
+    });
+
+    es.addEventListener('download-progress', (ev) => {
+        const d = JSON.parse(ev.data);
+        progEl.hidden = false;
+        progLabel.hidden = false;
+        if (d.pct != null) progEl.value = Math.min(100, d.pct);
+        progLabel.textContent = `${d.label}: ${d.bytes.toLocaleString()} bytes` +
+                                (d.total ? ` / ${d.total.toLocaleString()}` : '') +
+                                (d.pct != null ? ` (${d.pct.toFixed(1)}%)` : '') +
+                                (d.done ? ' — done' : '');
+    });
+
+    es.addEventListener('extract-progress', (ev) => {
+        const d = JSON.parse(ev.data);
+        progLabel.textContent = `${d.label}: extracted ${d.files} files / ` +
+                                `${d.bytes.toLocaleString()} bytes` +
+                                (d.done ? ' — done' : '');
+    });
+
+    // ── Test button ─────────────────────────────────────────────────────────
+    document.getElementById('run-test').addEventListener('click', async () => {
+        testStat.textContent = 'running…';
+        testStat.className = 'dim';
+        progEl.value = 0;
+        try {
+            const res = await fetch('/api/dev/test-plumbing');
+            const j = await res.json();
+            if (j.ok) {
+                testStat.textContent = `OK — nssm at ${j.nssmPath}`;
+                testStat.className = 'ok';
+            } else {
+                testStat.textContent = `FAIL: ${j.error || 'unknown'}`;
+                testStat.className = 'err';
+            }
+        } catch (e) {
+            testStat.textContent = `ERROR: ${e.message}`;
+            testStat.className = 'err';
+        }
     });
   </script>
 </body>
