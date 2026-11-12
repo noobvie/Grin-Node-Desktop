@@ -15,7 +15,7 @@ step before moving on*.
 Already in place:
 - Repo layout, [README.md](../README.md), [.gitignore](../.gitignore)
 - [install.ps1](../install.ps1) — one-liner installer (skeleton)
-- [Grin-Money-Desktop.bat](../Grin-Money-Desktop.bat) + [scripts/bootstrap.ps1](../scripts/bootstrap.ps1)
+- [Grin-Node-Desktop.bat](../Grin-Node-Desktop.bat) + [scripts/bootstrap.ps1](../scripts/bootstrap.ps1)
 - [app/server.js](../app/server.js) — Express on 127.0.0.1:7420
 - [app/public/index.html](../app/public/index.html) — proves the launcher → Node → browser chain works
 
@@ -68,7 +68,7 @@ SSE if an interactive client is attached.
 ```
 log(level, scope, msg, meta?)
   ├─ console.log: [HH:MM:SS] [level] [scope] msg
-  ├─ append to %USERPROFILE%\Grin-Money-Desktop\logs\app-YYYY-MM-DD.log
+  ├─ append to D:\Grin\logs\app-YYYY-MM-DD.log
   └─ sse.emit('log', {ts, level, scope, msg, meta})
 levels: debug | info | warn | error
 rotation: new file daily, keep last 14
@@ -91,7 +91,7 @@ a documented schema and atomic writes.
 - `app/lib/util/state.js` — generic `readState(name)` / `writeState(name,obj)`
 - `app/lib/util/paths.js` — well-known paths (install root, log dir, data dir)
 
-**State files** (all under `%USERPROFILE%\Grin-Money-Desktop\state\`):
+**State files** (all under `D:\Grin\state\`):
 | File | Schema (top-level keys) | Purpose |
 |---|---|---|
 | `app.json` | `{ version, firstRunComplete, network: 'mainnet'\|'testnet' }` | Global toolkit state |
@@ -222,8 +222,8 @@ latestRelease(owner, repo, assetPattern)
 ```
 
 **Targets**:
-- `mimblewimble/grin` → asset matching `grin-v.*-win-x64.zip`
-- `mimblewimble/grin-wallet` → asset matching `grin-wallet-v.*-win-x64.zip`
+- `mimblewimble/grin` → asset matching `grin-v.*-win-x86_64.zip`
+- `mimblewimble/grin-wallet` → asset matching `grin-wallet-v.*-win-x86_64.zip`
 
 **Risk**: GitHub releases for grin sometimes lack pre-computed SHA256.
 **Mitigation**: compute SHA256 after download, store in `binaries.json`,
@@ -306,7 +306,7 @@ generateNodeConfig({ network, mode, dataDir })
   │     - data dir paths
   │     - api_secret_path, foreign_api_secret_path
   │     - pruning flags if mode === 'pruned'
-  │     - p2p_config.host = '0.0.0.0' (inbound P2P)
+  │     - p2p host left at grin's default "::" (dual-stack inbound; linux-toolkit-parity.md §2)
   └─ generate .api_secret + .foreign_api_secret if missing (crypto.randomBytes(32).toString('hex'))
 ```
 
@@ -424,8 +424,7 @@ can download chain data to fast-forward the initial sync.
 ### Step 4.1 — Owner API client
 
 **New files**: `app/lib/wallet/node-owner-api.js`
-(Misnomer: this is *node* Owner API, but kept under wallet/ alongside
-wallet APIs for proximity. Could split into `app/lib/node/` later.)
+(Node Owner API lives under `lib/node/`; wallet Owner API under `lib/wallet/`.)
 
 ```
 ownerApi(network).call(method, params)

@@ -14,7 +14,14 @@ const path = require('path');
 const fs   = require('fs');
 
 // app/lib/util/paths.js → up three levels → repo root.
-const INSTALL_ROOT = path.resolve(__dirname, '..', '..', '..');
+// GRIN_INSTALL_ROOT is a test-only override: node:test files point it at a
+// temp dir so installer code writes bin/ data/ state/ there instead of the
+// repo. APP_DIR still follows it, so ensureLayout()'s marker check is skipped
+// when the override is set (a temp root has no app/server.js by design).
+const INSTALL_ROOT_OVERRIDE = process.env.GRIN_INSTALL_ROOT
+    ? path.resolve(process.env.GRIN_INSTALL_ROOT)
+    : null;
+const INSTALL_ROOT = INSTALL_ROOT_OVERRIDE || path.resolve(__dirname, '..', '..', '..');
 
 const APP_DIR    = path.join(INSTALL_ROOT, 'app');
 const BIN_DIR    = path.join(INSTALL_ROOT, 'bin');
@@ -40,6 +47,36 @@ function stateFile(name) {
 }
 
 /**
+ * Tor's torrc and DataDirectory. Kept out of bin\tor so that replacing the
+ * Tor binaries never touches the configuration or the onion keys.
+ */
+function torDataDir() {
+    return path.join(DATA_DIR, 'tor');
+}
+
+/**
+ * Resolve `p` and require it to sit strictly below `root` (never `root`
+ * itself). NTFS is case-insensitive, so the comparison folds case on win32.
+ * Every recursive delete in lib/ is applied to a path this has accepted.
+ * @returns {string} the resolved path
+ */
+function assertInside(root, p) {
+    if (typeof p !== 'string' || !p) throw new Error('assertInside: path must be a non-empty string');
+    const resolvedRoot = path.resolve(root);
+    const resolved     = path.resolve(p);
+    const fold = process.platform === 'win32' ? (s) => s.toLowerCase() : (s) => s;
+    const prefix = resolvedRoot.endsWith(path.sep) ? resolvedRoot : resolvedRoot + path.sep;
+    if (!fold(resolved).startsWith(fold(prefix)) || resolved.length <= prefix.length) {
+        throw new Error(`refusing to touch ${resolved}: not inside ${resolvedRoot}`);
+    }
+    return resolved;
+}
+
+function assertInsideData(p) {
+    return assertInside(DATA_DIR, p);
+}
+
+/**
  * Create every runtime directory if missing. Idempotent. Verifies that
  * INSTALL_ROOT contains a recognisable repo (app/server.js exists) —
  * throws with a clear message otherwise, so a misplaced paths.js can't
@@ -47,10 +84,10 @@ function stateFile(name) {
  */
 function ensureLayout() {
     const marker = path.join(APP_DIR, 'server.js');
-    if (!fs.existsSync(marker)) {
+    if (!INSTALL_ROOT_OVERRIDE && !fs.existsSync(marker)) {
         throw new Error(
             `paths.js: INSTALL_ROOT=${INSTALL_ROOT} doesn't look like the ` +
-            `Grin-Money-Desktop repo (expected ${marker} to exist). ` +
+            `Grin-Node-Desktop repo (expected ${marker} to exist). ` +
             `Refusing to create runtime dirs in the wrong place.`
         );
     }
@@ -71,5 +108,8 @@ module.exports = {
     walletDataDir,
     binaryPath,
     stateFile,
+    torDataDir,
+    assertInside,
+    assertInsideData,
     ensureLayout,
 };

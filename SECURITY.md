@@ -4,7 +4,7 @@
 
 **Please do not file public GitHub issues for security vulnerabilities.**
 
-If you find a security issue in Grin Money Desktop — anything that
+If you find a security issue in Grin Node Desktop — anything that
 could let an attacker access wallets, intercept transactions, leak
 secrets, or otherwise compromise users — report it privately first.
 
@@ -38,7 +38,8 @@ takes the risk of slow response on itself, not on you.
 ### What's in scope
 
 - The code in this repository (`install.ps1`, `scripts/`, `app/`)
-- The deployment of `install.ps1` at `https://grin.money/install`
+- The deployment of `install.ps1` at `https://grinnode.org/install` and
+  `https://grinnode.org/install.ps1` (and the redirect from `https://grin.money/install`)
 - Documentation that materially affects security (e.g. wrong recovery
   instructions that could lose users' funds)
 
@@ -86,7 +87,13 @@ Authenticode signature you should expect, and how to verify it.
 
 Until then:
 - Verify the source URL of `install.ps1` is exactly
-  `https://grin.money/install` (not a typo'd lookalike).
+  `https://grinnode.org/install` or `https://grinnode.org/install.ps1`
+  (not a typo'd lookalike).
+- `https://grinnode.org/install.ps1.sha256` is served from the same server
+  as the script. It catches a cut-off or stale download; it does **not**
+  protect against a compromised server, DNS or CDN, or a bad commit on
+  `main`. Read the script itself (and compare it with the file on GitHub)
+  before running it.
 - The script's first line must be `#Requires -Version 5.1` — if it
   isn't, the file is wrong; abort.
 - Cross-check binary SHA256s against what's recorded in

@@ -1,4 +1,4 @@
-# Security Model — Grin Money Desktop
+# Security Model — Grin Node Desktop
 
 This document is the **source of truth** for what this wallet protects
 against, what it doesn't, and the reasoning behind every security
@@ -71,7 +71,7 @@ traffic (zone A) > internet traffic.
 
 | Attack | Mitigation |
 |---|---|
-| ISP / WiFi MITM reading the install one-liner | `https://grin.money/install` over TLS 1.2+; nginx serves with HSTS; signature line verified after deploy |
+| ISP / WiFi MITM reading the install one-liner | `https://grinnode.org/install` over TLS 1.2+ (grin.money/install redirects there); nginx serves with HSTS; marker line and SHA256 verified after deploy; checksum published at `/install.ps1.sha256` |
 | MITM tampering with binary downloads (grin.exe, etc.) | SHA256 pinned in code; mismatch → install aborts |
 | Attacker port-scanning user's machine, hitting wallet API | All wallet/node APIs bind to `127.0.0.1` only — never `0.0.0.0` |
 | Attacker reaching the local UI through Wi-Fi | Same — only `127.0.0.1:7420`; we never listen on a network interface |
@@ -95,9 +95,9 @@ traffic (zone A) > internet traffic.
 | Compromised `install.ps1` on grin.money | Deploy gate (manual `site_manager.sh --action deploy-installer`); signature-line check before nginx serves it; future: Authenticode sign the script |
 | Compromised `grin.exe` from a fake GitHub release | We pull `latest_release` directly from GitHub API; release tags can only be pushed by repo maintainers; SHA256 of the downloaded archive recorded for cross-install verification |
 | Compromised npm dependency | Lock file pinned (`package-lock.json` committed); minimal deps (express + tar + yauzl + @iarna/toml + simple-git); `npm audit` in CI on every PR |
-| Compromised NSSM | NSSM pinned to v2.24 with a known-good SHA256 |
+| Compromised NSSM | NSSM pinned to build 2.24-101-g897c7ad with a known-good SHA256 |
 | Compromised Tor expert bundle | Tor version pinned with SHA256; bundle fetched over HTTPS from `archive.torproject.org` |
-| Backdoor in a PR from a contributor | Maintainer review on every PR; release tags signed; no auto-deploy from `main` to grin.money/install |
+| Backdoor in a PR from a contributor | Maintainer review on every PR; release tags signed; publishing to grinnode.org/install is a manual option G run by default; option G can also run hourly from cron (`--auto-confirm`), which publishes `main` HEAD with no human in the loop — use it only during development. Open: signed tags verified by option G and checked out by both installers |
 
 ### User-error footguns
 
@@ -318,6 +318,18 @@ on security-touching code is higher than for the rest of the codebase.
 6. **Hidden-service descriptor enumeration protection** — Tor v3 by
    default; no action needed unless Tor deprecates v3 or vulnerability
    discovered.
+7. **Local multi-user machines** — the per-process session token
+   (`lib/security/session-token.js`) only stops attacks that arrive
+   through a browser (cross-site requests, DNS rebinding). It is not
+   authentication: any local process, under any Windows account on the
+   machine, can connect to `127.0.0.1:7420`, send the headers the UI
+   sends to `GET /api/session/token`, obtain the token and drive every
+   API of a server that runs elevated. On a shared PC that is a path from
+   a standard account to service control. Candidates: hand the token to
+   the launching user only (a file under an ACL'd folder, or a one-time
+   URL fragment on the browser launch) and refuse `/api/session/token`
+   otherwise; or a transport Windows can authenticate (named pipe).
+   **Undecided** — until then the app assumes a single-user machine.
 
 ---
 

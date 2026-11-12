@@ -8,7 +8,11 @@
  * In-memory cache invalidated by mtime, so concurrent processes (rare)
  * still see fresh data.
  *
- * Default schemas are returned when a file is missing or corrupt; a
+ * The rename is retried a few times on EPERM/EBUSY: antivirus and the
+ * search indexer briefly hold a just-written file open on Windows.
+ *
+ * Default schemas are returned when a file is missing or corrupt (invalid
+ * JSON, or JSON that is not an object — every schema here is one); a
  * corrupt file is renamed to <file>.corrupt-<ts>.json so it isn't lost,
  * and a warning is logged.
  */
@@ -74,6 +78,9 @@ function readState(name) {
     let parsed;
     try {
         parsed = JSON.parse(raw);
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('not a JSON object');
+        }
     } catch (e) {
         const backup = `${file}.corrupt-${Date.now()}.json`;
         try { fs.renameSync(file, backup); } catch (_) {}
@@ -96,13 +103,29 @@ function writeState(name, data) {
     const json = JSON.stringify(data, null, 2);
 
     fs.writeFileSync(tmp, json, 'utf8');                    // never BOM
-    fs.renameSync(tmp, file);                               // atomic on NTFS
+    renameWithRetry(tmp, file);                             // atomic on NTFS
 
     try {
         const mtimeMs = fs.statSync(file).mtimeMs;
         cache.set(name, { data: structuredClone(data), mtimeMs });
     } catch (_) {
         cache.delete(name);                                 // will re-read next time
+    }
+}
+
+const RENAME_ATTEMPTS = 3;
+const RENAME_WAIT_MS  = 50;
+
+function renameWithRetry(from, to) {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return fs.renameSync(from, to);
+        } catch (e) {
+            const transient = e.code === 'EPERM' || e.code === 'EBUSY';
+            if (!transient || attempt >= RENAME_ATTEMPTS) throw e;
+            // Synchronous on purpose: writeState is a sync API and the wait is tens of ms.
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RENAME_WAIT_MS);
+        }
     }
 }
 

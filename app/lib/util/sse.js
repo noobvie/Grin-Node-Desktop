@@ -12,67 +12,90 @@
  *   extract-progress   — { label, files, bytes }
  *   binary-installed   — { name, version }
  *   node-status        — periodic sync state
+ *   job                — { jobId, network, op, phase, ok, error } (lib/node/jobs.js)
+ *   node-install       — { network, mode, phase, … } (lib/node/ops-install.js)
+ *   chaindata-progress — { phase, network, mode, … } (lib/installer/chaindata.js)
  *   error              — { scope, msg }
+ *
+ * Limits, so a stuck or hostile local client cannot grow server memory:
+ *   - only GET subscribes (anything else is answered 405);
+ *   - at most MAX_CLIENTS streams; a new one evicts the oldest;
+ *   - a client whose socket buffer stays full for MAX_STALLED_WRITES
+ *     consecutive writes, or whose write throws, is dropped. EventSource
+ *     reconnects by itself, so a healthy tab that was evicted comes back.
  */
 
-/** @type {import('http').ServerResponse[]} */
-const clients = [];
+const MAX_CLIENTS        = 16;
+const MAX_STALLED_WRITES = 8;
+const KEEPALIVE_MS       = 25_000;
 
-const KEEPALIVE_MS = 25_000;
-/** @type {Map<import('http').ServerResponse, NodeJS.Timeout>} */
-const keepalives = new Map();
+/**
+ * Insertion-ordered, so the first key is the oldest client.
+ * @type {Map<import('http').ServerResponse, {keepalive: NodeJS.Timeout, stalled: number}>}
+ */
+const clients = new Map();
+
+function drop(res) {
+    const entry = clients.get(res);
+    if (!entry) return;
+    clearInterval(entry.keepalive);
+    clients.delete(res);
+    try { res.end(); } catch (_) { /* socket already gone */ }
+}
+
+/** Write to one client; drops it when the write throws or keeps stalling. */
+function send(res, payload) {
+    const entry = clients.get(res);
+    if (!entry) return;
+    let flushed;
+    try {
+        flushed = res.write(payload);
+    } catch (_) {
+        return drop(res);
+    }
+    if (flushed) { entry.stalled = 0; return; }
+    if (++entry.stalled >= MAX_STALLED_WRITES) drop(res);
+}
 
 function subscribe(req, res) {
+    if (req.method !== 'GET') {
+        res.writeHead(405, { 'Allow': 'GET', 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'method not allowed' }));
+        return;
+    }
+
+    while (clients.size >= MAX_CLIENTS) {
+        drop(clients.keys().next().value);
+    }
+
     res.writeHead(200, {
         'Content-Type':      'text/event-stream',
         'Cache-Control':     'no-cache, no-transform',
         'Connection':        'keep-alive',
         'X-Accel-Buffering': 'no',
     });
-    res.write(':\n\n');
 
-    clients.push(res);
+    const keepalive = setInterval(() => send(res, ':\n\n'), KEEPALIVE_MS);
+    keepalive.unref();
+    clients.set(res, { keepalive, stalled: 0 });
+    send(res, ':\n\n');
 
-    const ka = setInterval(() => {
-        try { res.write(':\n\n'); } catch (_) { /* will be cleaned on close */ }
-    }, KEEPALIVE_MS);
-    keepalives.set(res, ka);
-
-    req.on('close', () => {
-        const idx = clients.indexOf(res);
-        if (idx !== -1) clients.splice(idx, 1);
-        const t = keepalives.get(res);
-        if (t) { clearInterval(t); keepalives.delete(res); }
-    });
+    req.on('close', () => drop(res));
 }
 
 function emit(event, data) {
-    if (clients.length === 0) return;
+    if (clients.size === 0) return;
     let payload;
     try {
         payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     } catch (e) {
         payload = `event: error\ndata: ${JSON.stringify({ scope: 'sse', msg: 'unserialisable event' })}\n\n`;
     }
-
-    const dead = [];
-    for (const res of clients) {
-        try {
-            res.write(payload);
-        } catch (_) {
-            dead.push(res);
-        }
-    }
-    for (const res of dead) {
-        const idx = clients.indexOf(res);
-        if (idx !== -1) clients.splice(idx, 1);
-        const t = keepalives.get(res);
-        if (t) { clearInterval(t); keepalives.delete(res); }
-    }
+    for (const res of [...clients.keys()]) send(res, payload);
 }
 
 function count() {
-    return clients.length;
+    return clients.size;
 }
 
-module.exports = { subscribe, emit, count };
+module.exports = { subscribe, emit, count, MAX_CLIENTS, MAX_STALLED_WRITES };

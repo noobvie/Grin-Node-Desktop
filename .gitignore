@@ -3,6 +3,13 @@ app/node_modules/
 app/npm-debug.log*
 app/yarn-debug.log*
 
+# ── Runtime dirs under INSTALL_ROOT (root-anchored: app/lib/... is unaffected) ─
+/bin/
+/data/
+/state/
+/logs/
+/.tmp/
+
 # ── Local runtime state (created on first run) ──────────────────────────────
 .unblocked
 app/wallets_info.json

@@ -1,4 +1,4 @@
-# Grin Money Desktop
+# Grin Node Desktop
 
 Build your own Grin wallet on Windows — with a clean web interface, the
 **official** [grin-wallet](https://github.com/mimblewimble/grin-wallet)
@@ -18,20 +18,23 @@ piece is human-readable.
 Open **PowerShell as Administrator** and paste this one line:
 
 ```powershell
-irm https://grin.money/install | iex
+irm https://grinnode.org/install | iex
 ```
 
 That's it. The installer downloads Git, Node.js, and this repo for you, then
 opens the wallet in your browser.
 
-Prefer to see the script before running it? Open the same URL in a browser
-first: <https://grin.money/install>.
+Prefer to see the script before running it? Read it at
+<https://grinnode.org/install.ps1>, or compare it with
+[install.ps1](install.ps1) here on GitHub. Opening <https://grinnode.org/install>
+in a browser shows a help page; PowerShell gets the script itself. The older
+address `https://grin.money/install` redirects there and still works.
 
 ### Manual install (no one-liner)
 
 1. Click **Code → Download ZIP** on GitHub
 2. Extract anywhere
-3. Double-click `Grin-Money-Desktop.bat`
+3. Double-click `Grin-Node-Desktop.bat`
 
 ---
 

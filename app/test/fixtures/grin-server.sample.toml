@@ -1,0 +1,48 @@
+# Sample Server Configuration File for Grin (shape of `grin server config` output)
+
+[server]
+api_http_addr = "127.0.0.1:3413"
+api_secret_path = ".api_secret"
+foreign_api_secret_path = ".foreign_api_secret"
+db_root = "chain_data"
+chain_type = "Mainnet"
+chain_validation_mode = "Disabled"
+archive_mode = false
+skip_sync_wait = false
+run_tui = true
+run_test_miner = false
+grin_magic_number = 0
+
+[server.p2p_config]
+host = "::"
+port = 3414
+peer_max_inbound_count = 128
+peer_max_outbound_count = 8
+peer_min_preferred_outbound_count = 8
+ban_window = 10800
+
+[server.p2p_config.capabilities]
+bits = 15
+
+[server.dandelion_config]
+epoch_secs = 600
+embargo_secs = 180
+
+[server.stratum_mining_config]
+enable_stratum_server = false
+stratum_server_addr = "127.0.0.1:3416"
+attempt_time_per_block = 15
+minimum_share_difficulty = 1
+wallet_listener_url = "http://127.0.0.1:3415"
+burn_reward = false
+
+[logging]
+log_to_stdout = true
+stdout_log_level = "Info"
+log_to_file = true
+file_log_level = "Debug"
+log_file_path = "grin-server.log"
+log_file_append = true
+log_max_size = 16777216
+log_max_files = 32
+tui_running = false

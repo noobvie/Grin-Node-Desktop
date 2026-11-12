@@ -500,7 +500,7 @@ Remove this endpoint before Phase 7.
 url = `https://api.github.com/repos/${owner}/${repo}/releases/latest`
 headers = {
     'Accept': 'application/vnd.github+json',
-    'User-Agent': 'grin-money-desktop',
+    'User-Agent': 'grin-node-desktop',
     'X-GitHub-Api-Version': '2022-11-28'
 }
 res = await httpsGetJson(url, headers)
@@ -530,7 +530,7 @@ to avoid hitting GitHub rate limits during repeated installs in dev.
 **Flow:**
 ```
 log.info('installer.grin', 'starting')
-release = await github.latestRelease('mimblewimble', 'grin', /grin-v.*-win-x64\.zip$/)
+release = await github.latestRelease('mimblewimble', 'grin', /grin-v.*-win-x86_64\.zip$/)
 log.info('installer.grin', `latest: ${release.tag}`)
 
 state = readState('binaries')
@@ -549,7 +549,7 @@ tempExtract = path.join(paths.TEMP_DIR, 'grin-extract')
 await fs.promises.rm(tempExtract, { recursive: true, force: true })
 await extract({ archive: tempZip, dest: tempExtract })
 
-// Zip layout: grin-v5.4.0-win-x64/grin.exe (versioned subfolder)
+// Zip layout: grin-v5.4.0-win-x86_64/grin.exe (versioned subfolder)
 inner = findFile(tempExtract, 'grin.exe')
 if !inner: throw 'grin.exe not found in archive'
 
@@ -568,7 +568,7 @@ return result
 
 Same shape as `installGrin`, with:
 - repo = `'grin-wallet'`
-- pattern = `/grin-wallet-v.*-win-x64\.zip$/`
+- pattern = `/grin-wallet-v.*-win-x86_64\.zip$/`
 - inner exe name = `'grin-wallet.exe'`
 
 ### `installTor() → Promise<{version, path}>`
@@ -701,7 +701,7 @@ p2pPort      = network === 'testnet' ? 13414 : 3414
 
 mutations = {
     'server.api_http_addr':              `127.0.0.1:${apiPort}`,
-    'server.p2p_config.host':            '0.0.0.0',
+    // p2p host left at grin's default "::" (dual-stack); see linux-toolkit-parity.md §2
     'server.p2p_config.port':            p2pPort,
     'server.db_root':                    path.join(dataDir, 'chain_data'),
     'server.api_secret_path':            path.join(dataDir, '.api_secret'),
@@ -1115,7 +1115,7 @@ own JS module under `app/public/js/panels/<name>.js`. No framework.
        if !diff: return { ok: true, alreadyLatest: true }
        return { ok: true, mode: 'git', diff }
    else:
-       latest = github.latestRelease('noobvie', 'Grin-Money-Desktop', /Source code.*zip/)
+       latest = github.latestRelease('noobvie', 'Grin-Node-Desktop', /Source code.*zip/)
        return { ok: true, mode: 'zip', tag: latest.tag }
 
 POST /api/update/apply { confirm: true }
@@ -1130,7 +1130,7 @@ POST /api/update/apply { confirm: true }
   await execInDir('npm install --omit=dev', paths.INSTALL_ROOT + '/app')
 
   // schedule restart
-  spawn detached: cmd /c "timeout 2 && Grin-Money-Desktop.bat"
+  spawn detached: cmd /c "timeout 2 && Grin-Node-Desktop.bat"
   setTimeout(() => process.exit(0), 1000)
 ```
 

@@ -1,41 +1,65 @@
 'use strict';
 /**
- * HTTPS download with retry, SHA256 verification, range resume, and
- * SSE progress events. Used by every binary / chain_data downloader.
+ * HTTPS download with retry, SHA256 verification, range resume, a size
+ * ceiling, a free-space check, and SSE progress events. Used by every
+ * binary / chain_data downloader.
  *
  * Design notes:
- *   - Hash is computed from byte 0 every time we open the file; on
- *     resume we re-hash the partial .part. Slow on multi-GB files but
- *     the only safe option without persisted intermediate hash state.
- *     Architecture R6 flags this for later optimisation.
- *   - On HTTP 200 to a Range request, server ignored Range; we restart
- *     from zero (rather than appending to a stale file).
- *   - Progress events throttled to every 64 KiB to avoid SSE flood.
+ *   - Bytes flow through stream.pipeline(response → hasher → file), so a
+ *     slow disk pauses the socket instead of buffering gigabytes in RAM.
+ *   - An existing .part is re-hashed from byte 0 BEFORE any request is made,
+ *     so no connection sits idle while a multi-GB file is read back. When the
+ *     .part already carries the expected SHA256 it is simply moved into place
+ *     without a request.
+ *   - On HTTP 200 to a Range request the server ignored Range; the response
+ *     is destroyed (never drained — it is the whole file) and the download
+ *     restarts from zero.
+ *   - A response that is abandoned is destroyed, not resumed: draining would
+ *     pull an arbitrarily large body just to throw it away.
+ *   - A redirect from https to http is refused.
+ *   - When the size is announced, the bytes on disk must equal it.
+ *   - `maxBytes`, the free-space check and a downgrade redirect are fatal:
+ *     they fail the same way on every retry, so they skip the retry loop.
+ *   - Progress events need both 64 KiB of new data and 250 ms since the last
+ *     one, so a fast link cannot flood the SSE stream.
  */
 
 const fs       = require('fs');
+const path     = require('path');
 const https    = require('https');
 const http     = require('http');
 const crypto   = require('crypto');
 const { URL }  = require('url');
+const { Transform } = require('stream');
+const { pipeline }  = require('stream/promises');
 const log      = require('./log');
 const sse      = require('./sse');
+const disk     = require('./disk');
 
 const MAX_RETRIES         = 3;
 const RETRY_BACKOFF_MS    = 3_000;
 const PROGRESS_THROTTLE_B = 64 * 1024;
+const PROGRESS_THROTTLE_MS = 250;
+const RENAME_RETRIES      = 5;
+const RENAME_RETRY_MS     = 200;
+const MAX_REDIRECTS       = 5;
+const SOCKET_TIMEOUT_MS   = 60_000;
+
+// GitHub's API refuses requests without a User-Agent. A product name
+// identifies the app, not the user (security-model.md §8 rule 6).
+const USER_AGENT = 'grin-node-desktop';
 
 /**
- * @typedef {Object} DownloadOptions
- * @property {string}   url
- * @property {string}   dest                Final on-disk path
- * @property {string}   [sha256]            Hex-lowercase; if set, verified
- * @property {string}   [label]             Human label for progress events
- * @property {object}   [headers]           Extra request headers
- *
+ * @param {Object}  opts
+ * @param {string}  opts.url
+ * @param {string}  opts.dest        Final on-disk path
+ * @param {string}  [opts.sha256]    Hex; if set, verified after download
+ * @param {string}  [opts.label]     Human label for progress events
+ * @param {object}  [opts.headers]   Extra request headers
+ * @param {number}  [opts.maxBytes]  Refuse a body whose announced size exceeds this
  * @returns {Promise<{bytes:number, sha256:string}>}
  */
-async function download({ url, dest, sha256, label, headers }) {
+async function download({ url, dest, sha256, label, headers, maxBytes }) {
     label = label || dest.split(/[\\/]/).pop();
     const expectedSha = sha256 ? sha256.toLowerCase() : null;
     const partFile    = `${dest}.part`;
@@ -43,131 +67,208 @@ async function download({ url, dest, sha256, label, headers }) {
     let lastErr;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            const result = await attemptDownload({
-                url, dest, partFile, expectedSha, label, headers,
+            return await attemptDownload({
+                url, dest, partFile, expectedSha, label, headers, maxBytes,
             });
-            return result;
         } catch (e) {
             lastErr = e;
             log.warn('download', `${label} attempt ${attempt}/${MAX_RETRIES} failed: ${e.message}`);
-            if (attempt < MAX_RETRIES) {
-                await sleep(RETRY_BACKOFF_MS);
-            }
+            if (e.fatal) break;
+            if (attempt < MAX_RETRIES && !e.retryNow) await sleep(RETRY_BACKOFF_MS);
         }
     }
     throw lastErr;
 }
 
-async function attemptDownload({ url, dest, partFile, expectedSha, label, headers }) {
+function fatal(message) {
+    const err = new Error(message);
+    err.fatal = true;
+    return err;
+}
+
+async function attemptDownload({ url, dest, partFile, expectedSha, label, headers, maxBytes }) {
+    const hash = crypto.createHash('sha256');
     let startByte = 0;
     if (fs.existsSync(partFile)) {
         startByte = fs.statSync(partFile).size;
-        log.info('download', `${label}: resuming at ${startByte} bytes`);
+        if (startByte > 0) {
+            log.info('download', `${label}: resuming at ${startByte} bytes`);
+            await rehashPartial(partFile, startByte, hash);
+            // A complete .part left behind by a failed final rename: finish the
+            // job instead of asking the server for bytes past the end.
+            if (expectedSha && hash.copy().digest('hex') === expectedSha) {
+                return finalize({ partFile, dest, label, bytes: startByte, total: startByte, sha256: expectedSha });
+            }
+        }
     }
 
-    const reqHeaders = { 'User-Agent': 'grin-money-desktop', ...(headers || {}) };
+    const reqHeaders = { 'User-Agent': USER_AGENT, ...(headers || {}) };
     if (startByte > 0) reqHeaders['Range'] = `bytes=${startByte}-`;
 
-    const response = await httpsGet(url, reqHeaders);
+    const response = await followRedirects(url, reqHeaders);
+    const status   = response.statusCode;
 
-    // ── Handle redirects (up to 5 hops) ────────────────────────────────────
-    let followed = response;
-    let hops = 0;
-    while ([301, 302, 303, 307, 308].includes(followed.statusCode)) {
-        if (++hops > 5) {
-            followed.resume();
-            throw new Error(`Too many redirects (>5) for ${url}`);
-        }
-        const next = followed.headers.location;
-        followed.resume();
-        if (!next) throw new Error(`Redirect ${followed.statusCode} with no Location header`);
-        const nextUrl = new URL(next, url).toString();
-        followed = await httpsGet(nextUrl, reqHeaders);
-    }
-
-    // ── Range was ignored — restart from zero ──────────────────────────────
-    if (startByte > 0 && followed.statusCode === 200) {
+    if (startByte > 0 && status === 200) {
         log.warn('download', `${label}: server ignored Range, restarting from 0`);
-        followed.resume();
-        try { fs.unlinkSync(partFile); } catch (_) {}
-        throw new Error('server-ignored-range');            // outer retry will re-enter
+        response.destroy();
+        rmQuiet(partFile);
+        const e = new Error('server ignored the Range request; restarting from 0');
+        e.retryNow = true;                                  // nothing to wait for
+        throw e;
     }
 
-    if (followed.statusCode !== 200 && followed.statusCode !== 206) {
-        followed.resume();
-        throw new Error(`HTTP ${followed.statusCode} for ${url}`);
+    if (startByte > 0 && status === 416) {
+        // "bytes */N" with N equal to what we hold means the .part is the whole
+        // file. With an expected hash that case was settled above, so reaching
+        // here with one means the content is wrong.
+        const m = /\*\/(\d+)\s*$/.exec(response.headers['content-range'] || '');
+        response.destroy();
+        if (!expectedSha && m && parseInt(m[1], 10) === startByte) {
+            return finalize({ partFile, dest, label, bytes: startByte, total: startByte, sha256: hash.digest('hex') });
+        }
+        rmQuiet(partFile);
+        const e = new Error('stale .part rejected by server (416), restarting from 0');
+        e.retryNow = true;
+        throw e;
     }
 
-    const totalFromHeader = parseTotalBytes(followed.headers, startByte);
-
-    // ── Stream to .part, hashing as we go ──────────────────────────────────
-    const writeFlags = startByte > 0 ? 'a' : 'w';
-    const out  = fs.createWriteStream(partFile, { flags: writeFlags });
-    const hash = crypto.createHash('sha256');
-
-    // If resuming, re-hash the existing partial bytes from disk first.
-    if (startByte > 0) {
-        await new Promise((resolve, reject) => {
-            const rs = fs.createReadStream(partFile, { end: startByte - 1 });
-            rs.on('data',  chunk => hash.update(chunk));
-            rs.on('end',   resolve);
-            rs.on('error', reject);
-        });
+    if (status !== 200 && status !== 206) {
+        response.destroy();
+        throw new Error(`HTTP ${status} for ${url}`);
     }
 
-    let bytes = startByte;
-    let lastEmit = startByte;
+    const total = parseTotalBytes(response.headers, startByte);
 
-    await new Promise((resolve, reject) => {
-        followed.on('data', chunk => {
-            out.write(chunk);
-            hash.update(chunk);
-            bytes += chunk.length;
-            if (bytes - lastEmit >= PROGRESS_THROTTLE_B) {
-                lastEmit = bytes;
-                sse.emit('download-progress', {
-                    label,
-                    bytes,
-                    total: totalFromHeader,
-                    pct:   totalFromHeader ? (bytes / totalFromHeader) * 100 : null,
-                });
-            }
-        });
-        followed.on('end', () => {
-            out.end(resolve);
-        });
-        followed.on('error', reject);
-        out.on('error', reject);
-    });
+    if (total !== null && maxBytes !== undefined && total > maxBytes) {
+        response.destroy();
+        throw fatal(`${label}: announced size ${total} bytes exceeds the ${maxBytes} byte limit`);
+    }
+    if (total !== null) {
+        try {
+            await disk.requireFree(path.dirname(dest), total - startByte, label);
+        } catch (e) {
+            response.destroy();
+            throw fatal(e.message);
+        }
+    }
+
+    const out    = fs.createWriteStream(partFile, { flags: startByte > 0 ? 'a' : 'w' });
+    const hasher = progressHasher({ hash, label, total, maxBytes, startByte });
+
+    try {
+        await pipeline(response, hasher, out);
+    } catch (e) {
+        if (e.fatal) rmQuiet(partFile);
+        throw e;                                            // .part stays for resume otherwise
+    }
+
+    const bytes = hasher.bytes;
+    if (total !== null && bytes !== total) {
+        if (bytes > total) rmQuiet(partFile);               // cannot be resumed into a valid file
+        throw new Error(`${label}: body ended at ${bytes} of ${total} bytes`);
+    }
 
     const actualSha = hash.digest('hex');
-
     if (expectedSha && expectedSha !== actualSha) {
-        try { fs.unlinkSync(partFile); } catch (_) {}
+        rmQuiet(partFile);
         throw new Error(`SHA256 mismatch: expected ${expectedSha}, got ${actualSha}`);
     }
 
-    // Final atomic move
-    fs.renameSync(partFile, dest);
-
-    sse.emit('download-progress', {
-        label,
-        bytes,
-        total: totalFromHeader || bytes,
-        pct: 100,
-        done: true,
-    });
-    log.info('download', `${label} ok`, { bytes, sha256: actualSha.slice(0, 12) });
-
-    return { bytes, sha256: actualSha };
+    return finalize({ partFile, dest, label, bytes, total: total || bytes, sha256: actualSha });
 }
 
-function httpsGet(url, headers) {
+/**
+ * Move a verified .part into place. Antivirus and the search indexer briefly
+ * hold a freshly written file open, which makes the rename fail with
+ * EPERM/EBUSY; it is retried, and a rename that still fails leaves the .part
+ * untouched for the next attempt to pick up.
+ */
+async function finalize({ partFile, dest, label, bytes, total, sha256 }) {
+    for (let i = 1; ; i++) {
+        try {
+            fs.renameSync(partFile, dest);                  // atomic on NTFS
+            break;
+        } catch (e) {
+            const transient = e.code === 'EPERM' || e.code === 'EBUSY' || e.code === 'EACCES';
+            if (!transient || i >= RENAME_RETRIES) throw e;
+            await sleep(RENAME_RETRY_MS);
+        }
+    }
+    sse.emit('download-progress', { label, bytes, total, pct: 100, done: true });
+    log.info('download', `${label} ok`, { bytes, sha256: sha256.slice(0, 12) });
+    return { bytes, sha256 };
+}
+
+function rmQuiet(file) {
+    try { fs.unlinkSync(file); } catch (_) { /* absent */ }
+}
+
+/**
+ * Transform that hashes and counts every chunk and emits throttled
+ * progress. Enforces maxBytes on the wire for bodies with no announced size.
+ */
+function progressHasher({ hash, label, total, maxBytes, startByte }) {
+    let lastEmit   = startByte;
+    let lastEmitAt = 0;
+    const t = new Transform({
+        transform(chunk, _enc, cb) {
+            t.bytes += chunk.length;
+            if (maxBytes !== undefined && t.bytes > maxBytes) {
+                return cb(fatal(`${label}: body exceeded the ${maxBytes} byte limit`));
+            }
+            hash.update(chunk);
+            const now = Date.now();
+            if (t.bytes - lastEmit >= PROGRESS_THROTTLE_B && now - lastEmitAt >= PROGRESS_THROTTLE_MS) {
+                lastEmit   = t.bytes;
+                lastEmitAt = now;
+                sse.emit('download-progress', {
+                    label,
+                    bytes: t.bytes,
+                    total,
+                    pct: total ? (t.bytes / total) * 100 : null,
+                });
+            }
+            cb(null, chunk);
+        },
+    });
+    t.bytes = startByte;
+    return t;
+}
+
+function rehashPartial(partFile, startByte, hash) {
+    return new Promise((resolve, reject) => {
+        const rs = fs.createReadStream(partFile, { end: startByte - 1 });
+        rs.on('data',  chunk => hash.update(chunk));
+        rs.on('end',   resolve);
+        rs.on('error', reject);
+    });
+}
+
+async function followRedirects(url, headers) {
+    let response = await httpGet(url, headers);
+    let current  = url;
+    let hops     = 0;
+    while ([301, 302, 303, 307, 308].includes(response.statusCode)) {
+        const next = response.headers.location;
+        response.destroy();
+        if (++hops > MAX_REDIRECTS) throw new Error(`Too many redirects (>${MAX_REDIRECTS}) for ${url}`);
+        if (!next) throw new Error(`Redirect ${response.statusCode} with no Location header`);
+        const target = new URL(next, current);
+        if (new URL(current).protocol === 'https:' && target.protocol !== 'https:') {
+            throw fatal(`refusing redirect from https to ${target.protocol}//${target.host}`);
+        }
+        current  = target.toString();
+        response = await httpGet(current, headers);
+    }
+    return response;
+}
+
+function httpGet(url, headers) {
     return new Promise((resolve, reject) => {
         const lib = url.startsWith('http:') ? http : https;
         const req = lib.get(url, { headers }, resolve);
         req.on('error', reject);
-        req.setTimeout(60_000, () => req.destroy(new Error('socket timeout')));
+        req.setTimeout(SOCKET_TIMEOUT_MS, () => req.destroy(new Error('socket timeout')));
     });
 }
 
